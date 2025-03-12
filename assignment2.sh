@@ -1,86 +1,122 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "=== Checking and Configuring Network ==="
+# Function to print section headers
+section() {
+    echo -e "\n\033[1;34m===== $1 =====\033[0m"
+}
 
-NETPLAN_FILE="/etc/netplan/00-installer-config.yaml"
-INTERFACE="enp0s8" # Убедитесь, что имя интерфейса верное
-
-# Настройка сети
-if ! grep -q "192.168.16.21/24" "$NETPLAN_FILE" || ! grep -q "$INTERFACE" "$NETPLAN_FILE"; then
-    echo "Configuring network interface $INTERFACE..."
-    cat <<EOF | tee "$NETPLAN_FILE" >/dev/null
-network:
-    version: 2
-    renderer: networkd
-    ethernets:
-        $INTERFACE:
-            addresses: [192.168.16.21/24]
-EOF
-    if ! netplan apply; then
-        echo "Error: Failed to apply netplan configuration!" >&2
-        exit 1
-    fi
-else
-    echo "Network is already configured."
-fi
-
-echo "=== Updating /etc/hosts ==="
-sed -i '/^192\.168\.16\.21/d' /etc/hosts
-echo "192.168.16.21 server1" >> /etc/hosts
-
-echo "=== Installing Required Software ==="
-if ! apt update; then
-    echo "Error: Failed to update package lists!" >&2
+# Function to handle errors
+error_handler() {
+    echo -e "\033[1;31mERROR: $1\033[0m" >&2
     exit 1
-fi
-apt install -y apache2 squid
+}
 
-echo "=== Creating User Accounts ==="
-USERS=("dennis" "aubrey" "captain" "snibbles" "brownie" "scooter" "sandy" "perrier" "cindy" "tiger" "yoda")
-for USER in "${USERS[@]}"; do
-    if ! id "$USER" &>/dev/null; then
-        echo "Creating user $USER..."
-        useradd -m -s /bin/bash "$USER"
-    else
-        echo "User $USER already exists."
-    fi
-done
+# Network Configuration
+configure_network() {
+    section "Configuring Network"
+    local netplan_file="/etc/netplan/00-installer-config.yaml"
+    local expected_ip="192.168.16.21/24"
 
-echo "=== Configuring SSH Keys ==="
-for USER in "${USERS[@]}"; do
-    HOME_DIR="/home/$USER"
-    SSH_DIR="$HOME_DIR/.ssh"
-    mkdir -p "$SSH_DIR"
-    chmod 700 "$SSH_DIR"
+    # Backup existing netplan file
+    cp "$netplan_file" "${netplan_file}.bak"
 
-    # Генерация ключей, если отсутствуют
-    if [ ! -f "$SSH_DIR/id_rsa" ]; then
-        ssh-keygen -t rsa -f "$SSH_DIR/id_rsa" -N "" -q
-    fi
-    if [ ! -f "$SSH_DIR/id_ed25519" ]; then
-        ssh-keygen -t ed25519 -f "$SSH_DIR/id_ed25519" -N "" -q
+    # Update netplan configuration
+    if ! grep -q "$expected_ip" "$netplan_file"; then
+        echo "Updating network configuration..."
+        sudo sed -i "/addresses:/s/\[.*\]/\[${expected_ip}\/24\]/" "$netplan_file" || 
+            error_handler "Failed to update netplan config"
+        netplan apply || error_handler "Failed to apply netplan changes"
     fi
 
-    # Добавление публичных ключей
-    touch "$SSH_DIR/authorized_keys"
-    grep -qxF "$(cat "$SSH_DIR/id_rsa.pub")" "$SSH_DIR/authorized_keys" || cat "$SSH_DIR/id_rsa.pub" >> "$SSH_DIR/authorized_keys"
-    grep -qxF "$(cat "$SSH_DIR/id_ed25519.pub")" "$SSH_DIR/authorized_keys" || cat "$SSH_DIR/id_ed25519.pub" >> "$SSH_DIR/authorized_keys"
+    # Update /etc/hosts
+    sudo sed -i '/server1/s/[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+/192.168.16.21/' /etc/hosts
+}
 
-    if [ "$USER" == "dennis" ]; then
-        DENNIS_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG4rT3vTt99Ox5kndS4HmgTrKBT8SKzhK4rhGkEVGlCI student@generic-vm"
-        grep -qxF "$DENNIS_KEY" "$SSH_DIR/authorized_keys" || echo "$DENNIS_KEY" >> "$SSH_DIR/authorized_keys"
+# Install required packages
+install_packages() {
+    section "Installing Packages"
+    local packages=("apache2" "squid")
+    
+    for pkg in "${packages[@]}"; do
+        if ! dpkg -l | grep -q "^ii  $pkg "; then
+            echo "Installing $pkg..."
+            sudo apt-get install -y --assume-yes "$pkg" || error_handler "Failed to install $pkg"
+            sudo systemctl enable "$pkg" || error_handler "Failed to enable $pkg"
+            sudo systemctl start "$pkg" || error_handler "Failed to start $pkg"
+        fi
+    done
+}
+
+# User management functions
+create_user() {
+    local username=$1
+    section "Configuring User: $username"
+    
+    # Create user if not exists
+    if ! id "$username" &>/dev/null; then
+        echo "Creating user $username..."
+        sudo useradd -m -s /bin/bash "$username" || error_handler "Failed to create user $username"
     fi
 
-    chmod 600 "$SSH_DIR/authorized_keys"
-    chown -R "$USER:$USER" "$SSH_DIR"
-done
+    # Create SSH directory
+    local ssh_dir="/home/$username/.ssh"
+    sudo mkdir -p "$ssh_dir" || error_handler "Failed to create .ssh directory"
+    sudo chown "$username:$username" "$ssh_dir"
+    sudo chmod 700 "$ssh_dir"
 
-echo "=== Granting sudo Access to Dennis ==="
-if ! groups dennis | grep -q '\bsudo\b'; then
-    usermod -aG sudo dennis
-else
-    echo "User dennis already has sudo access."
-fi
+    # Generate SSH keys
+    for key_type in rsa ed25519; do
+        local key_file="$ssh_dir/id_$key_type"
+        if [ ! -f "$key_file" ]; then
+            echo "Generating $key_type key for $username..."
+            sudo -u "$username" ssh-keygen -t "$key_type" -f "$key_file" -N "" -q || 
+                error_handler "Failed to generate $key_type key"
+            sudo -u "$username" cat "${key_file}.pub" >> "$ssh_dir/authorized_keys" || 
+                error_handler "Failed to add public key"
+        fi
+    done
 
-echo "=== Configuration Completed ==="
+    # Special handling for dennis
+    if [ "$username" == "dennis" ]; then
+        echo "Configuring sudo access for dennis..."
+        sudo usermod -aG sudo dennis || error_handler "Failed to add dennis to sudo group"
+        
+        # Add special public key
+        local special_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG4rT3vTt99Ox5kndS4HmgTrKBT8SKzhK4rhGkEVGlCI student@generic-vm"
+        if ! grep -q "$special_key" "$ssh_dir/authorized_keys"; then
+            echo "Adding special key for dennis..."
+            echo "$special_key" | sudo tee -a "$ssh_dir/authorized_keys" >/dev/null
+        fi
+    fi
+
+    # Set permissions
+    sudo chown "$username:$username" "$ssh_dir/authorized_keys"
+    sudo chmod 600 "$ssh_dir/authorized_keys"
+}
+
+main() {
+    # Update package lists
+    section "Updating Package Lists"
+    sudo apt-get update -q || error_handler "Failed to update package lists"
+
+    # Configure network
+    configure_network
+
+    # Install required packages
+    install_packages
+
+    # Create users
+    local users=("dennis" "aubrey" "captain" "snibbles" "brownie" 
+                 "scooter" "sandy" "perrier" "cindy" "tiger" "yoda")
+    
+    for user in "${users[@]}"; do
+        create_user "$user"
+    done
+
+    section "Configuration Complete"
+    echo -e "\033[1;32mAll configurations applied successfully!\033[0m"
+}
+
+# Execute main function
+main
