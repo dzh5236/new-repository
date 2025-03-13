@@ -1,0 +1,91 @@
++ echo 'Starting the assignment2.sh script'
+Starting the assignment2.sh script
++ echo 'Setting up network configuration for 192.168.16.21'
+Setting up network configuration for 192.168.16.21
++ NETPLAN_FILE=/etc/netplan/00-installer-config.yaml
++ grep -q 192.168.16.21 /etc/netplan/00-installer-config.yaml
+grep: /etc/netplan/00-installer-config.yaml: Permission denied
++ cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.bak
+cp: cannot open '/etc/netplan/00-installer-config.yaml' for reading: Permission denied
++ sed -i 's/address: .*/address: 192.168.16.21\/24/' /etc/netplan/00-installer-config.yaml
+sed: can't read /etc/netplan/00-installer-config.yaml: Permission denied
++ echo 'Network configuration updated to 192.168.16.21'
+Network configuration updated to 192.168.16.21
++ netplan apply
+Cannot open /etc/netplan/00-installer-config.yaml: Permission denied
++ handle_error 'Failed to apply netplan configuration'
+./assignment2.sh: line 15: handle_error: command not found
++ echo 'Updating /etc/hosts file'
+Updating /etc/hosts file
++ grep -q 192.168.16.21 /etc/hosts
++ echo '/etc/hosts already contains the correct entry'
+/etc/hosts already contains the correct entry
++ echo 'Checking and installing the required software'
+Checking and installing the required software
++ dpkg -l
++ grep -q apache2
++ echo 'apache2 is already installed'
+apache2 is already installed
++ dpkg -l
++ grep -q squid
++ echo 'squid is already installed'
+squid is already installed
++ echo 'Creating users and configuring SSH keys'
+Creating users and configuring SSH keys
++ USERS=("dennis" "aubrey" "captain" "snibbles" "brownie" "scooter" "sandy" "perrier" "cindy" "tiger" "yoda")
++ PUBLIC_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG4rT3vTt99Ox5kndS4HmgTrKBT8SKzhK4rhGkEVGlCI student@generic-vm'
++ for USER in "${USERS[@]}"
++ id dennis
++ echo 'dennis already exists'
+dennis already exists
++ for USER in "${USERS[@]}"
++ id aubrey
++ echo 'aubrey already exists'
+aubrey already exists
++ for USER in "${USERS[@]}"
++ id captain
++ echo 'captain already exists'
+captain already exists
++ for USER in "${USERS[@]}"
++ id snibbles
++ echo 'snibbles already exists'
+snibbles already exists
++ for USER in "${USERS[@]}"
++ id brownie
++ echo 'brownie already exists'
+brownie already exists
++ for USER in "${USERS[@]}"
++ id scooter
++ echo 'scooter already exists'
+scooter already exists
++ for USER in "${USERS[@]}"
++ id sandy
++ echo 'sandy already exists'
+sandy already exists
++ for USER in "${USERS[@]}"
++ id perrier
++ echo 'perrier already exists'
+perrier already exists
++ for USER in "${USERS[@]}"
++ id cindy
++ echo 'cindy already exists'
+cindy already exists
++ for USER in "${USERS[@]}"
++ id tiger
++ echo 'tiger already exists'
+tiger already exists
++ for USER in "${USERS[@]}"
++ id yoda
++ echo 'yoda already exists'
+yoda already exists
++ usermod -aG sudo dennis
+usermod: Permission denied.
+usermod: cannot lock /etc/passwd; try again later.
++ handle_error 'Failed to add dennis to sudo group'
+./assignment2.sh: line 66: handle_error: command not found
++ echo 'User dennis added to sudo group'
+User dennis added to sudo group
++ echo 'All user accounts and SSH keys configured'
+All user accounts and SSH keys configured
++ echo 'assignment2.sh script completed'
+assignment2.sh script completed
