@@ -1,19 +1,19 @@
 #!/bin/bash
 
-#netplan file
+# Netplan file
 NETPLAN_FILE="/etc/netplan/10-lxc.yaml"
 
 echo "================================"
 echo "Checking netplan file."
 
-#checking if it exists
+# Checking if it exists
 if [ ! -f "$NETPLAN_FILE" ]; then
-    echo "netplan file hasn't been found: $NETPLAN_FILE"
+    echo "Netplan file not found: $NETPLAN_FILE"
     exit 1
 fi
 
 echo "================================"
-echo "Netplan file is found."
+echo "Netplan file found."
 
 # Checking if interface is already configured
 if grep -q "192.168.16.21/24" "$NETPLAN_FILE"; then
@@ -21,10 +21,16 @@ if grep -q "192.168.16.21/24" "$NETPLAN_FILE"; then
 else
     echo "Configuring the interface..."
     # Changing netplan file
-    sudo sed -i '/ethernets:/a \        enp0s8:\n          addresses: [192.168.16.21/24]' "$NETPLAN_FILE"
+    sudo sed -i '/ethernets:/a \        enp0s8:\n          addresses: [192.168.16.21/24]\n          dhcp4: no' "$NETPLAN_FILE"
     # Applying changes
     sudo netplan apply
-    echo "The interface interface is configured."
+    if [ $? -eq 0 ]; then
+        echo "Netplan applied successfully."
+    else
+        echo "Failed to apply netplan. Check the configuration."
+        exit 1
+    fi
+    echo "The interface is configured."
 fi
 
 echo "================================"
@@ -48,7 +54,7 @@ fi
 echo "================================"
 
 echo "Installing Apache2"
-if dpkg -l | grep -q apache2; then
+if command -v apache2 &>/dev/null; then
     echo "Apache2 is already installed."
 else
     echo "Installing Apache2..."
@@ -59,17 +65,18 @@ fi
 
 echo "================================"
 
-echo "Installing Suid"
-if dpkg -l | grep -q squid; then
+echo "Installing Squid"
+if command -v squid &>/dev/null; then
     echo "Squid is already installed."
 else
     echo "Installing Squid..."
     sudo apt-get install -y squid
     echo "Squid installed successfully."
 fi
+
 echo "================================"
 
-echo 'Create users and set up SSH keys'
+echo "Creating users and setting up SSH keys"
 USERS=("dennis" "aubrey" "captain" "snibbles" "brownie" "scooter" "sandy" "perrier" "cindy" "tiger" "yoda")
 for USER in "${USERS[@]}"; do
     if id "$USER" &>/dev/null; then
@@ -78,7 +85,8 @@ for USER in "${USERS[@]}"; do
         echo "Creating user $USER..."
         sudo useradd -m -s /bin/bash "$USER"
         echo "User $USER created successfully."
-    fi	
+    fi
+
     echo "================================"
     echo "Creating directories for users"
     USER_HOME="/home/$USER"
@@ -86,30 +94,45 @@ for USER in "${USERS[@]}"; do
     sudo mkdir -p "$SSH_DIR"
     sudo chown "$USER:$USER" "$SSH_DIR"
     sudo chmod 700 "$SSH_DIR"
-    echo 'The directories successfully created'
+    echo "Directories successfully created"
     echo "================================"
-   
-   echo "Creating KEYS for users"    
-   RSA_KEY="$SSH_DIR/id_rsa"
+
+    echo "Creating RSA keys for users"
+    RSA_KEY="$SSH_DIR/id_rsa"
     if [ ! -f "$RSA_KEY" ]; then
         echo "Generating RSA key for $USER..."
         sudo -u "$USER" ssh-keygen -t rsa -b 4096 -f "$RSA_KEY" -N ""
-	echo 'The RSA keys are successfully created'
+        echo "RSA keys successfully created"
     else
         echo "RSA key already exists for $USER."
     fi
-echo "================================"
 
-    # ED25519 Key Generation
+    echo "================================"
+    echo "Creating ED25519 keys for users"
     ED25519_KEY="$SSH_DIR/id_ed25519"
     if [ ! -f "$ED25519_KEY" ]; then
         echo "Generating ED25519 key for $USER..."
         sudo -u "$USER" ssh-keygen -t ed25519 -f "$ED25519_KEY" -N ""
-        echo "The ED25519 keys are successfully created"
+        echo "ED25519 keys successfully created"
     else
         echo "ED25519 key already exists for $USER."
     fi
-    echo "================================"
 
-    # ... (authorized_keys setup)
+    echo "================================"
+    echo "Setting up authorized_keys"
+    RSA_PUB_KEY="$SSH_DIR/id_rsa.pub"
+    ED25519_PUB_KEY="$SSH_DIR/id_ed25519.pub"
+    if [ ! -f "$SSH_DIR/authorized_keys" ]; then
+        sudo touch "$SSH_DIR/authorized_keys"
+        sudo chown "$USER:$USER" "$SSH_DIR/authorized_keys"
+        sudo chmod 600 "$SSH_DIR/authorized_keys"
+    fi
+    if ! grep -q "$(cat "$RSA_PUB_KEY")" "$SSH_DIR/authorized_keys"; then
+        cat "$RSA_PUB_KEY" | sudo tee -a "$SSH_DIR/authorized_keys" > /dev/null
+    fi
+    if ! grep -q "$(cat "$ED25519_PUB_KEY")" "$SSH_DIR/authorized_keys"; then
+        cat "$ED25519_PUB_KEY" | sudo tee -a "$SSH_DIR/authorized_keys" > /dev/null
+    fi
+    echo "authorized_keys setup complete"
+    echo "================================"
 done
