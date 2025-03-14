@@ -2,17 +2,17 @@
 Starting the assignment2.sh script
 + echo 'Setting up network configuration for 192.168.16.21'
 Setting up network configuration for 192.168.16.21
-+ NETPLAN_FILE=/etc/netplan/00-installer-config.yaml
-+ grep -q 192.168.16.21 /etc/netplan/00-installer-config.yaml
-grep: /etc/netplan/00-installer-config.yaml: Permission denied
-+ cp /etc/netplan/00-installer-config.yaml /etc/netplan/00-installer-config.yaml.bak
-cp: cannot open '/etc/netplan/00-installer-config.yaml' for reading: Permission denied
-+ sed -i 's/address: .*/address: 192.168.16.21\/24/' /etc/netplan/00-installer-config.yaml
-sed: can't read /etc/netplan/00-installer-config.yaml: Permission denied
++ NETPLAN_FILE=/etc/netplan/10-lxc.yaml
++ grep -q 192.168.16.21 /etc/netplan/10-lxc.yaml
+grep: /etc/netplan/10-lxc.yaml: Permission denied
++ cp /etc/netplan/10-lxc.yaml /etc/netplan/10-lxc.yaml.bak
+cp: cannot open '/etc/netplan/10-lxc.yaml' for reading: Permission denied
++ sed -i 's/address: .*/address: 192.168.16.21\/24/' /etc/netplan/10-lxc.yaml
+sed: can't read /etc/netplan/10-lxc.yaml: Permission denied
 + echo 'Network configuration updated to 192.168.16.21'
 Network configuration updated to 192.168.16.21
 + netplan apply
-Cannot open /etc/netplan/00-installer-config.yaml: Permission denied
+Cannot open /etc/netplan/10-lxc.yaml: Permission denied
 + handle_error 'Failed to apply netplan configuration'
 ./assignment2.sh: line 15: handle_error: command not found
 + echo 'Updating /etc/hosts file'
