@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Netplan file
-NETPLAN_FILE="/etc/netplan/10-lxc.yaml"
+NETPLAN_FILE="/etc/netplan/*.yaml"
 
 echo "================================"
 echo "Checking netplan file."
