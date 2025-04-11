@@ -1,212 +1,151 @@
 #!/bin/bash
 
-# System Configuration Script
-# Manages hostname, IP address, and hosts file entries
+# Script to configure basic host settings
+# Ignore TERM, HUP and INT signals
+trap "" TERM HUP INT
 
-echo "=== Starting system configuration script ==="
+# Default verbose mode is off
+VERBOSE=false
 
-# Verify root privileges
-echo "Checking for root privileges..."
-if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: This script must be run as root" >&2
-    exit 1
-fi
-echo "✓ Root privileges confirmed"
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -verbose)
+      VERBOSE=true
+      shift
+      ;;
+    -name)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: -name option requires a parameter" >&2
+        exit 1
+      fi
+      DESIRED_NAME="$2"
+      shift 2
+      ;;
+    -ip)
+      if [[ $# -lt 2 ]]; then
+        echo "Error: -ip option requires a parameter" >&2
+        exit 1
+      fi
+      DESIRED_IP="$2"
+      shift 2
+      ;;
+    -hostentry)
+      if [[ $# -lt 3 ]]; then
+        echo "Error: -hostentry option requires two parameters" >&2
+        exit 1
+      fi
+      ENTRY_NAME="$2"
+      ENTRY_IP="$3"
+      shift 3
+      ;;
+    *)
+      echo "Error: Unknown option $1" >&2
+      exit 1
+      ;;
+  esac
+done
 
-# Configuration variables
-declare -A CONFIG_ARGS
-VERBOSE_MODE=0
-HOSTNAME_FILE="/etc/hostname"
-HOSTS_FILE="/etc/hosts"
-NETPLAN_CONFIG="/etc/netplan/10-lxc.yaml"
-
-# Setup interruption handling
-echo "Configuring script interruption handlers..."
-cleanup_interrupt() {
-    echo "! Script interrupted - performing cleanup..."
-    exit 1
-}
-trap cleanup_interrupt TERM HUP INT
-echo "✓ Interruption handlers configured"
-
-# Enhanced logging function
-log_event() {
-    local log_message="$1"
-    logger -t "system_config" "$log_message"
-    [[ $VERBOSE_MODE -eq 1 ]] && echo "LOG: $log_message"
-}
-
-# Verify system dependencies
-echo "Checking for required system commands..."
-verify_dependencies() {
-    local required_commands=("ip" "hostnamectl" "netplan" "logger" "sed")
-    for cmd in "${required_commands[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            echo "ERROR: Required command '$cmd' not found in system PATH"
-            exit 1
-        fi
-        echo "✓ Found required command: $cmd"
-    done
-    echo "✓ All system dependencies verified"
-}
-
-# Hostname configuration function
-set_system_hostname() {
-    local new_hostname="$1"
-    echo "Checking current hostname..."
-    local current_hostname=$(cat "$HOSTNAME_FILE" 2>/dev/null)
-    
-    if [[ "$current_hostname" != "$new_hostname" ]]; then
-        echo "Updating system hostname from '$current_hostname' to '$new_hostname'"
-        
-        echo "Writing new hostname to $HOSTNAME_FILE..."
-        if ! echo "$new_hostname" > "$HOSTNAME_FILE"; then
-            echo "ERROR: Failed to update $HOSTNAME_FILE"
-            return 1
-        fi
-        echo "✓ Hostname file updated"
-        
-        echo "Applying hostname change system-wide..."
-        if ! hostnamectl set-hostname "$new_hostname"; then
-            echo "ERROR: Failed to update hostname via hostnamectl"
-            return 1
-        fi
-        echo "✓ System hostname updated"
-        
-        echo "Updating hosts file reference..."
-        sed -i "/127.0.1.1/c\127.0.1.1\t$new_hostname" "$HOSTS_FILE"
-        echo "✓ Hosts file reference updated"
-        
-        log_event "Hostname changed to $new_hostname"
-    else
-        echo "Hostname already configured as '$new_hostname' - no changes needed"
-    fi
+# Function to log verbose output
+log_verbose() {
+  if [[ "$VERBOSE" == true ]]; then
+    echo "$1"
+  fi
 }
 
-# IP address configuration
-configure_network_ip() {
-    local new_ip="$1"
-    echo "Identifying default network interface..."
-    local network_interface=$(ip -o -4 route show to default | awk '{print $5}')
-    echo "Found interface: $network_interface"
+# Function to update hostname
+update_hostname() {
+  local current_hostname=$(hostname)
+  
+  if [[ "$current_hostname" != "$DESIRED_NAME" ]]; then
+    # Update /etc/hostname
+    echo "$DESIRED_NAME" > /etc/hostname
     
-    echo "Checking current IP address..."
-    local current_ip=$(ip -o -4 addr show dev "$network_interface" | awk '{print $4}' | cut -d'/' -f1)
+    # Update /etc/hosts
+    sed -i "s/127.0.1.1.*/127.0.1.1\t$DESIRED_NAME/" /etc/hosts
     
-    if [[ "$current_ip" != "$new_ip" ]]; then
-        echo "Updating IP configuration from $current_ip to $new_ip"
-        
-        echo "Creating netplan configuration backup..."
-        cp "$NETPLAN_CONFIG" "${NETPLAN_CONFIG}.backup"
-        echo "✓ Backup created at ${NETPLAN_CONFIG}.backup"
-        
-        if command -v yq &>/dev/null; then
-            echo "Using yq for YAML configuration..."
-            yq e ".network.ethernets.$network_interface.addresses = [\"$new_ip/24\"]" -i "$NETPLAN_CONFIG"
-            echo "✓ YAML configuration updated using yq"
-        else
-            echo "Notice: Using basic sed for YAML modification (install yq for better handling)"
-            sed -i "/$network_interface:/,/addresses:/s/addresses: .*/addresses: [$new_ip\/24]/" "$NETPLAN_CONFIG"
-            echo "✓ YAML configuration updated using sed"
-        fi
-        
-        echo "Applying network configuration..."
-        if ! netplan apply; then
-            echo "ERROR: Network configuration failed - restoring backup"
-            mv "${NETPLAN_CONFIG}.backup" "$NETPLAN_CONFIG"
-            return 1
-        fi
-        echo "✓ Network configuration successfully applied"
-    else
-        echo "Network already configured with IP $new_ip - no changes needed"
-    fi
+    # Apply hostname to running system
+    hostname "$DESIRED_NAME"
+    
+    log_verbose "Hostname changed from $current_hostname to $DESIRED_NAME"
+    logger "Hostname changed from $current_hostname to $DESIRED_NAME"
+  else
+    log_verbose "Hostname is already set to $DESIRED_NAME. No changes needed."
+  fi
 }
 
-# Hosts file management
-update_hosts_file() {
-    local host_entry_name="$1"
-    local host_entry_ip="$2"
-    echo "Preparing to update hosts file entry for $host_entry_name ($host_entry_ip)"
+# Function to update IP address
+update_ip() {
+  local lan_interface=$(ip route | grep default | awk '{print $5}')
+  local current_ip=$(ip -4 addr show $lan_interface | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+  
+  if [[ "$current_ip" != "$DESIRED_IP" ]]; then
+    # Update netplan file
+    cat > /etc/netplan/01-netcfg.yaml << EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    $lan_interface:
+      dhcp4: no
+      addresses: [$DESIRED_IP/24]
+      gateway4: 192.168.16.1
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
+EOF
     
-    local sanitized_name=$(printf '%s\n' "$host_entry_name" | sed 's:[][\/.^$*]:\\&:g')
+    # Apply netplan changes
+    netplan apply
     
-    echo "Checking for existing entries..."
-    if grep -q "$sanitized_name" "$HOSTS_FILE"; then
-        echo "Found existing entry - removing old version..."
-        sed -i "/$sanitized_name$/d" "$HOSTS_FILE"
-        echo "✓ Old entry removed"
-    else
-        echo "No existing entry found - proceeding with new entry"
+    # Update /etc/hosts if hostname is set
+    if [[ -n "$DESIRED_NAME" ]]; then
+      if grep -q "127.0.1.1" /etc/hosts; then
+        sed -i "s/127.0.1.1.*/127.0.1.1\t$DESIRED_NAME/" /etc/hosts
+      else
+        echo "127.0.1.1	$DESIRED_NAME" >> /etc/hosts
+      fi
     fi
     
-    echo "Adding new hosts file entry..."
-    echo -e "$host_entry_ip\t$host_entry_name" >> "$HOSTS_FILE"
-    echo "✓ New entry added: $host_entry_ip $host_entry_name"
+    log_verbose "IP address changed from $current_ip to $DESIRED_IP"
+    logger "IP address changed from $current_ip to $DESIRED_IP"
+  else
+    log_verbose "IP address is already set to $DESIRED_IP. No changes needed."
+  fi
+}
+
+# Function to update hosts entry
+update_hostentry() {
+  if grep -q "$ENTRY_NAME" /etc/hosts; then
+    # Entry exists, check if IP is correct
+    local current_ip=$(grep "$ENTRY_NAME" /etc/hosts | awk '{print $1}')
     
-    log_event "Updated hosts file: $host_entry_ip $host_entry_name"
+    if [[ "$current_ip" != "$ENTRY_IP" ]]; then
+      # Update existing entry
+      sed -i "s/.*\s$ENTRY_NAME/$ENTRY_IP\t$ENTRY_NAME/" /etc/hosts
+      log_verbose "Updated hosts entry for $ENTRY_NAME from $current_ip to $ENTRY_IP"
+      logger "Updated hosts entry for $ENTRY_NAME from $current_ip to $ENTRY_IP"
+    else
+      log_verbose "Hosts entry for $ENTRY_NAME already has IP $ENTRY_IP. No changes needed."
+    fi
+  else
+    # Add new entry
+    echo -e "$ENTRY_IP\t$ENTRY_NAME" >> /etc/hosts
+    log_verbose "Added new hosts entry: $ENTRY_IP $ENTRY_NAME"
+    logger "Added new hosts entry: $ENTRY_IP $ENTRY_NAME"
+  fi
 }
 
-# Argument processing
-process_arguments() {
-    echo "Processing command line arguments..."
-    while [[ "$#" -gt 0 ]]; do
-        case "$1" in
-            -verbose) 
-                VERBOSE_MODE=1
-                echo "Verbose mode enabled"
-                ;;
-            -name) 
-                CONFIG_ARGS[name]="$2"
-                echo "Hostname set to: $2"
-                shift 
-                ;;
-            -ip) 
-                CONFIG_ARGS[ip]="$2"
-                echo "IP address set to: $2"
-                shift 
-                ;;
-            -hostentry) 
-                CONFIG_ARGS[hostentry_name]="$2" 
-                CONFIG_ARGS[hostentry_ip]="$3"
-                echo "Hosts entry set to: $2 $3"
-                shift 2 
-                ;;
-            *) 
-                echo "ERROR: Invalid option: $1" >&2
-                exit 1 
-                ;;
-        esac
-        shift
-    done
-    echo "✓ All arguments processed"
-}
-
-# Main execution flow
-echo "=== Beginning configuration process ==="
-verify_dependencies
-process_arguments "$@"
-
-if [[ -n "${CONFIG_ARGS[name]}" ]]; then
-    echo "--- Processing hostname configuration ---"
-    set_system_hostname "${CONFIG_ARGS[name]}"
-else
-    echo "No hostname change requested - skipping"
+# Execute requested operations
+if [[ -n "$DESIRED_NAME" ]]; then
+  update_hostname
 fi
 
-if [[ -n "${CONFIG_ARGS[ip]}" ]]; then
-    echo "--- Processing IP address configuration ---"
-    configure_network_ip "${CONFIG_ARGS[ip]}"
-else
-    echo "No IP address change requested - skipping"
+if [[ -n "$DESIRED_IP" ]]; then
+  update_ip
 fi
 
-if [[ -n "${CONFIG_ARGS[hostentry_name]}" ]]; then
-    echo "--- Processing hosts file update ---"
-    update_hosts_file "${CONFIG_ARGS[hostentry_name]}" "${CONFIG_ARGS[hostentry_ip]}"
-else
-    echo "No hosts file changes requested - skipping"
+if [[ -n "$ENTRY_NAME" && -n "$ENTRY_IP" ]]; then
+  update_hostentry
 fi
 
-echo "=== System configuration completed successfully ==="
-log_event "System configuration completed"
 exit 0
