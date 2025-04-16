@@ -1,0 +1,33 @@
+Verifying server1-mgmt is reachable...
+Verifying server2-mgmt is reachable...
+Copying configure-host.sh to server1...
+The authenticity of host 'server1-mgmt (172.16.1.241)' can't be established.
+ED25519 key fingerprint is SHA256:oZTm6/nMnAUIIv4lkbUTcZAd1N9LJOm0jRHRpFG6vIs.
+This host key is known by the following other names/addresses:
+    ~/.ssh/known_hosts:1: [hashed name]
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'server1-mgmt' (ED25519) to the list of known hosts.
+configure-host.sh                             100% 4120     3.3MB/s   00:00    
+Setting executable permissions on server1...
+Configuring server1...
+/etc/netplan/10-lxc.yaml:14:3: Invalid YAML: inconsistent indentation:
+  ens3:
+  ^
+Copying configure-host.sh to server2...
+The authenticity of host 'server2-mgmt (172.16.1.242)' can't be established.
+ED25519 key fingerprint is SHA256:kKRp+/+DBp8ohiB5ApewUI6fnMEKoe/7bAUgs8q+DZ8.
+This host key is known by the following other names/addresses:
+    ~/.ssh/known_hosts:2: [hashed name]
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'server2-mgmt' (ED25519) to the list of known hosts.
+configure-host.sh                             100% 4120   986.2KB/s   00:00    
+Setting executable permissions on server2...
+Configuring server2...
+/etc/netplan/10-lxc.yaml:14:3: Invalid YAML: inconsistent indentation:
+  ens3:
+  ^
+Updating local /etc/hosts for the two servers...
+Verifying configuration...
+WARNING: Cannot reach loghost by name. Configuration may not be complete.
+WARNING: Cannot reach webhost by name. Configuration may not be complete.
+All configurations completed successfully.
