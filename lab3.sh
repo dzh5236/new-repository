@@ -1,65 +1,62 @@
-#!/bin/bash
 
-# This script runs the configure-host.sh script from the current directory to modify 
-# 2 servers and update the local /etc/hosts file
-
-# Initialize variables
-VERBOSE=""
-
-# Check for verbose flag
+# Process command line arguments
+VERBOSE_FLAG=""
 if [[ "$1" == "-verbose" ]]; then
-  VERBOSE="-verbose"
+  VERBOSE_FLAG="-verbose"
   echo "Running in verbose mode"
 fi
 
-# Function to check command status and exit if failed
-check_status() {
-  if [[ $1 -ne 0 ]]; then
-    echo "Error: $2 failed with exit code $1" >&2
-    exit $1
-  elif [[ -n "$VERBOSE" ]]; then
-    echo "Success: $2"
+# Function to check if host is reachable
+check_host() {
+  if ! ping -c 1 -W 2 "$1" &> /dev/null; then
+    echo "ERROR: Cannot reach host $1. Please ensure the host is up and network is configured."
+    return 1
   fi
+  return 0
 }
 
-# Ensure configure-host.sh exists and is executable
-if [[ ! -f "./configure-host.sh" ]]; then
-  echo "Error: configure-host.sh not found in current directory" >&2
+# Function to handle errors
+handle_error() {
+  echo "ERROR: $1"
   exit 1
+}
+
+# Basic trap for clean exit
+trap 'echo "Script interrupted."; exit 1' INT TERM
+
+# Check if configure-host.sh exists
+if [[ ! -f "./configure-host.sh" ]]; then
+  handle_error "configure-host.sh script not found in current directory"
 fi
 
-chmod +x ./configure-host.sh
-check_status $? "Setting execute permission on configure-host.sh"
+# Make sure configure-host.sh is executable
+chmod +x ./configure-host.sh || handle_error "Cannot make configure-host.sh executable"
 
-# Configure server1 (loghost)
+# Verify servers are reachable
+echo "Verifying server1-mgmt is reachable..."
+check_host server1-mgmt || handle_error "Cannot reach server1-mgmt"
+
+echo "Verifying server2-mgmt is reachable..."
+check_host server2-mgmt || handle_error "Cannot reach server2-mgmt"
+
+# Configure server1
+echo "Copying configure-host.sh to server1..."
+scp configure-host.sh remoteadmin@server1-mgmt:/root/configure-host.sh || handle_error "Failed to copy script to server1-mgmt"
+
 echo "Configuring server1..."
-scp ./configure-host.sh remoteadmin@server1-mgmt:/root
-check_status $? "Copying configure-host.sh to server1"
+ssh remoteadmin@server1-mgmt -- "chmod +x /root/configure-host.sh && /root/configure-host.sh $VERBOSE_FLAG -name loghost -ip 192.168.16.3 -hostentry webhost 192.168.16.4" || handle_error "Configuration of server1-mgmt failed"
 
-ssh remoteadmin@server1-mgmt -- "chmod +x /root/configure-host.sh"
-check_status $? "Setting execute permission on server1"
+# Configure server2
+echo "Copying configure-host.sh to server2..."
+scp configure-host.sh remoteadmin@server2-mgmt:/root/configure-host.sh || handle_error "Failed to copy script to server2-mgmt"
 
-ssh remoteadmin@server1-mgmt -- "/root/configure-host.sh $VERBOSE -name loghost -ip 192.168.16.3 -hostentry webhost 192.168.16.4"
-check_status $? "Running configure-host.sh on server1"
-
-# Configure server2 (webhost)
 echo "Configuring server2..."
-scp ./configure-host.sh remoteadmin@server2-mgmt:/root
-check_status $? "Copying configure-host.sh to server2"
+ssh remoteadmin@server2-mgmt -- "chmod +x /root/configure-host.sh && /root/configure-host.sh $VERBOSE_FLAG -name webhost -ip 192.168.16.4 -hostentry loghost 192.168.16.3" || handle_error "Configuration of server2-mgmt failed"
 
-ssh remoteadmin@server2-mgmt -- "chmod +x /root/configure-host.sh"
-check_status $? "Setting execute permission on server2"
+# Update local host entries
+echo "Updating local /etc/hosts for the two servers..."
+sudo ./configure-host.sh $VERBOSE_FLAG -hostentry loghost 192.168.16.3 || handle_error "Failed to update local hosts for loghost"
+sudo ./configure-host.sh $VERBOSE_FLAG -hostentry webhost 192.168.16.4 || handle_error "Failed to update local hosts for webhost"
 
-ssh remoteadmin@server2-mgmt -- "/root/configure-host.sh $VERBOSE -name webhost -ip 192.168.16.4 -hostentry loghost 192.168.16.3"
-check_status $? "Running configure-host.sh on server2"
-
-# Update local hosts file
-echo "Updating local hosts file..."
-sudo ./configure-host.sh $VERBOSE -hostentry loghost 192.168.16.3
-check_status $? "Adding loghost entry to local hosts file"
-
-sudo ./configure-host.sh $VERBOSE -hostentry webhost 192.168.16.4
-check_status $? "Adding webhost entry to local hosts file"
-
-echo "Configuration complete!"
+echo "All configurations completed successfully."
 exit 0
